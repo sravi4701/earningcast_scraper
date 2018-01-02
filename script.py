@@ -1,14 +1,43 @@
-from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.options import Options
-from fake_useragent import UserAgent
+from __future__ import print_function
+from pprint import pprint
+import sys
 import time
 from bs4 import BeautifulSoup
-
-ua = UserAgent()
-
+import requests
+import re
+import threading
 # ajax call url
 # https://earningscast.com//calls?ajax=true&ajax_render=latest&page=1
+
+
+head_url = "https://earningscast.com"
+store = {}
+
+'''
+Store structure
+store {
+	company_name:[
+		{
+			event_name: string,
+			event_date: date,
+			Act: string,
+			Est: string,
+			audio_download_link: string 
+		}
+	]
+}
+'''
+
+
+def fetch_audio_url(item_url):
+	r = requests.get(item_url)
+	soup2 = BeautifulSoup(r.content, "lxml")
+	d_elem = soup2.find("a", id=re.compile("^event-[0-9]*-download"))
+	return d_elem["href"]
+
+
+def log(message):
+	print(message, file=sys.stderr)
 
 def parse_source(soup):
 	'''
@@ -25,6 +54,8 @@ def parse_source(soup):
 		date = date.strip() 
 		name = str(h3.a.string)
 		item_url = str(h3.a["href"])
+		company_name = item_url.split("/")[1]
+		item_url = head_url + item_url
 		name = name.strip()
 		act = ""
 		est = ""
@@ -36,21 +67,38 @@ def parse_source(soup):
 					est = elem
 			act = act.strip()
 			est = est.strip()
-		print("Name:", name)
-		print("date:", date)
-		print("Act:",act)
-		print("Est:", est)
-		print("item_url:",item_url)
-		print("--"*10)
+		log("fetching audio url ..........")
+		audio_url = head_url + fetch_audio_url(item_url)
+		if not store.get(company_name):
+			store[company_name] = []
+		obj = {
+			"event_name":name,
+			"event_date": date,
+			"Act":act,
+			"Est":est,
+			"audio_download_link":audio_url
+			}
+		store[company_name].append(obj)
+		# log("company_name:" + company_name)
+		# log("Name:" +  str(name))
+		# log("date:" +  str(date))
+		# log("Act:" + str(act))
+		# log("Est:" +  str(est))
+		# log("audio_url:" + str(audio_url))
+		log("--"*10)
+
+def main():
+	for i in range(1, 5):
+		log("page" + str(i) + " ........")
+		url = head_url + "/calls?ajax=true&ajax_render=latest&page=" + str(i)
+		response = requests.get(url)
+		log("Making soup......")
+		soup = BeautifulSoup(response.content, "lxml")
+		t = threading.Thread(target=parse_source, args=(soup,))
+		t.start()
+	while threading.active_count() > 1:
+		continue
+	print(store)
 
 if __name__ == '__main__':
-	opts = Options()
-	opts.add_argument("user-agent="+ua.chrome)
-	driver = webdriver.Chrome("/home/ravi/chromedriver")
-	driver.get("https://earningscast.com//calls?ajax=true&ajax_render=latest&page=1")
-	time.sleep(2)
-	html_source = driver.page_source
-	soup = BeautifulSoup(html_source, "lxml")
-	parse_source(soup)
-	time.sleep(2)
-	driver.close()
+	main()
